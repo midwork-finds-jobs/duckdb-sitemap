@@ -5,6 +5,11 @@
 
 namespace duckdb {
 
+// Silent error handler for libxml2
+static void SilentErrorHandler(void *ctx, const char *msg, ...) {
+	// Suppress all libxml2 error output
+}
+
 // Initialize libxml2 (call once at extension load)
 void XmlParser::Initialize() {
 	xmlInitParser();
@@ -18,7 +23,7 @@ void XmlParser::Cleanup() {
 // XMLDocRAII implementation
 XMLDocRAII::XMLDocRAII(const std::string &content) {
 	// Suppress error output
-	xmlSetGenericErrorFunc(nullptr, [](void *, const char *, ...) {});
+	xmlSetGenericErrorFunc(nullptr, SilentErrorHandler);
 
 	doc = xmlReadMemory(content.c_str(), static_cast<int>(content.size()), nullptr, nullptr,
 	                    XML_PARSE_NOERROR | XML_PARSE_NOWARNING | XML_PARSE_NONET);
@@ -26,9 +31,11 @@ XMLDocRAII::XMLDocRAII(const std::string &content) {
 	if (doc) {
 		xpath_ctx = xmlXPathNewContext(doc);
 		if (xpath_ctx) {
-			// Register sitemap namespace
+			// Register both sitemap namespace variants
 			xmlXPathRegisterNs(xpath_ctx, BAD_CAST "sm",
 			                   BAD_CAST "http://www.sitemaps.org/schemas/sitemap/0.9");
+			xmlXPathRegisterNs(xpath_ctx, BAD_CAST "sm2",
+			                   BAD_CAST "http://www.google.com/schemas/sitemap/0.84");
 		}
 	}
 }
@@ -71,8 +78,9 @@ static std::string GetXPathText(xmlXPathContextPtr ctx, xmlNodePtr node, const c
 		return "";
 	}
 
-	// Register namespace
+	// Register both namespace variants
 	xmlXPathRegisterNs(local_ctx, BAD_CAST "sm", BAD_CAST "http://www.sitemaps.org/schemas/sitemap/0.9");
+	xmlXPathRegisterNs(local_ctx, BAD_CAST "sm2", BAD_CAST "http://www.google.com/schemas/sitemap/0.84");
 
 	local_ctx->node = node;
 
@@ -118,29 +126,36 @@ SitemapParseResult XmlParser::ParseSitemap(const std::string &xml_content) {
 		// This is a sitemap index
 		result.type = SitemapType::SITEMAPINDEX;
 
-		// Find all <sitemap> elements
-		xmlXPathObjectPtr sitemap_nodes =
-		    xmlXPathEvalExpression(BAD_CAST "//sm:sitemap/sm:loc", doc.xpath_ctx);
+		// Try both namespace variants
+		const char *xpath_variants[] = {"//sm:sitemap/sm:loc", "//sm2:sitemap/sm2:loc"};
+		for (const char *xpath : xpath_variants) {
+			xmlXPathObjectPtr sitemap_nodes = xmlXPathEvalExpression(BAD_CAST xpath, doc.xpath_ctx);
 
-		if (sitemap_nodes && sitemap_nodes->nodesetval) {
-			for (int i = 0; i < sitemap_nodes->nodesetval->nodeNr; i++) {
-				xmlNodePtr node = sitemap_nodes->nodesetval->nodeTab[i];
-				xmlChar *content = xmlNodeGetContent(node);
-				if (content) {
-					std::string loc = reinterpret_cast<const char *>(content);
-					// Trim whitespace
-					size_t start = loc.find_first_not_of(" \t\n\r");
-					size_t end = loc.find_last_not_of(" \t\n\r");
-					if (start != std::string::npos && end != std::string::npos) {
-						result.sitemaps.push_back(loc.substr(start, end - start + 1));
+			if (sitemap_nodes && sitemap_nodes->nodesetval && sitemap_nodes->nodesetval->nodeNr > 0) {
+				for (int i = 0; i < sitemap_nodes->nodesetval->nodeNr; i++) {
+					xmlNodePtr node = sitemap_nodes->nodesetval->nodeTab[i];
+					xmlChar *content = xmlNodeGetContent(node);
+					if (content) {
+						std::string loc = reinterpret_cast<const char *>(content);
+						// Trim whitespace
+						size_t start = loc.find_first_not_of(" \t\n\r");
+						size_t end = loc.find_last_not_of(" \t\n\r");
+						if (start != std::string::npos && end != std::string::npos) {
+							result.sitemaps.push_back(loc.substr(start, end - start + 1));
+						}
+						xmlFree(content);
 					}
-					xmlFree(content);
 				}
 			}
-		}
 
-		if (sitemap_nodes) {
-			xmlXPathFreeObject(sitemap_nodes);
+			if (sitemap_nodes) {
+				xmlXPathFreeObject(sitemap_nodes);
+			}
+
+			// If we found results, stop trying other namespaces
+			if (!result.sitemaps.empty()) {
+				break;
+			}
 		}
 
 		result.success = true;
@@ -149,34 +164,47 @@ SitemapParseResult XmlParser::ParseSitemap(const std::string &xml_content) {
 		// This is a regular sitemap
 		result.type = SitemapType::URLSET;
 
-		// Find all <url> elements
-		xmlXPathObjectPtr url_nodes = xmlXPathEvalExpression(BAD_CAST "//sm:url", doc.xpath_ctx);
+		// Try both namespace variants
+		const char *xpath_variants[] = {"//sm:url", "//sm2:url"};
+		const char *loc_variants[] = {"sm:loc", "sm2:loc"};
+		const char *lastmod_variants[] = {"sm:lastmod", "sm2:lastmod"};
+		const char *changefreq_variants[] = {"sm:changefreq", "sm2:changefreq"};
+		const char *priority_variants[] = {"sm:priority", "sm2:priority"};
 
-		if (url_nodes && url_nodes->nodesetval) {
-			for (int i = 0; i < url_nodes->nodesetval->nodeNr; i++) {
-				xmlNodePtr url_node = url_nodes->nodesetval->nodeTab[i];
+		for (int ns_idx = 0; ns_idx < 2; ns_idx++) {
+			xmlXPathObjectPtr url_nodes = xmlXPathEvalExpression(BAD_CAST xpath_variants[ns_idx], doc.xpath_ctx);
 
-				SitemapEntry entry;
-				entry.url = GetXPathText(doc.xpath_ctx, url_node, "sm:loc");
-				entry.lastmod = GetXPathText(doc.xpath_ctx, url_node, "sm:lastmod");
-				entry.changefreq = GetXPathText(doc.xpath_ctx, url_node, "sm:changefreq");
-				entry.priority = GetXPathText(doc.xpath_ctx, url_node, "sm:priority");
+			if (url_nodes && url_nodes->nodesetval && url_nodes->nodesetval->nodeNr > 0) {
+				for (int i = 0; i < url_nodes->nodesetval->nodeNr; i++) {
+					xmlNodePtr url_node = url_nodes->nodesetval->nodeTab[i];
 
-				// Trim URL whitespace
-				size_t start = entry.url.find_first_not_of(" \t\n\r");
-				size_t end = entry.url.find_last_not_of(" \t\n\r");
-				if (start != std::string::npos && end != std::string::npos) {
-					entry.url = entry.url.substr(start, end - start + 1);
-				}
+					SitemapEntry entry;
+					entry.url = GetXPathText(doc.xpath_ctx, url_node, loc_variants[ns_idx]);
+					entry.lastmod = GetXPathText(doc.xpath_ctx, url_node, lastmod_variants[ns_idx]);
+					entry.changefreq = GetXPathText(doc.xpath_ctx, url_node, changefreq_variants[ns_idx]);
+					entry.priority = GetXPathText(doc.xpath_ctx, url_node, priority_variants[ns_idx]);
 
-				if (!entry.url.empty()) {
-					result.urls.push_back(std::move(entry));
+					// Trim URL whitespace
+					size_t start = entry.url.find_first_not_of(" \t\n\r");
+					size_t end = entry.url.find_last_not_of(" \t\n\r");
+					if (start != std::string::npos && end != std::string::npos) {
+						entry.url = entry.url.substr(start, end - start + 1);
+					}
+
+					if (!entry.url.empty()) {
+						result.urls.push_back(std::move(entry));
+					}
 				}
 			}
-		}
 
-		if (url_nodes) {
-			xmlXPathFreeObject(url_nodes);
+			if (url_nodes) {
+				xmlXPathFreeObject(url_nodes);
+			}
+
+			// If we found results, stop trying other namespaces
+			if (!result.urls.empty()) {
+				break;
+			}
 		}
 
 		result.success = true;

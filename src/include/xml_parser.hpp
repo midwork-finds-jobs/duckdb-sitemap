@@ -4,6 +4,7 @@
 #include <vector>
 #include <libxml/parser.h>
 #include <libxml/xpath.h>
+#include <libxml/xpathInternals.h>
 
 namespace duckdb {
 

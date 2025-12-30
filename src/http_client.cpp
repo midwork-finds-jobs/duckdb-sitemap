@@ -58,8 +58,8 @@ HttpResponse HttpClient::ExecuteHttpGet(DatabaseInstance &db, const std::string 
 	// Build query - request headers to get Retry-After
 	std::string query = StringUtil::Format(
 	    "SELECT status, decode(body) AS body, "
-	    "headers->>'content-type' AS content_type, "
-	    "headers->>'retry-after' AS retry_after "
+	    "content_type, "
+	    "headers['retry-after'] AS retry_after "
 	    "FROM http_get('%s')",
 	    escaped_url);
 
