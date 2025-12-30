@@ -1,0 +1,15 @@
+# name: test/sql/sitemap.test
+# description: Test sitemap extension
+# group: [sitemap]
+
+require sitemap
+
+# Test that extension loads
+statement ok
+SELECT 1;
+
+# Test sitemap_urls function exists (will fail on network but should parse args)
+statement error
+SELECT * FROM sitemap_urls();
+----
+sitemap_urls() requires a base_url argument
