@@ -8,8 +8,8 @@ require sitemap
 statement ok
 SELECT 1;
 
-# Test sitemap_urls function exists (will fail on network but should parse args)
+# Test sitemap_urls function exists
 statement error
 SELECT * FROM sitemap_urls();
 ----
-sitemap_urls() requires a base_url argument
+No function matches the given name and argument types
