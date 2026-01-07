@@ -109,6 +109,11 @@ static unique_ptr<FunctionData> SitemapBind(ClientContext &context, TableFunctio
 
 	bind_data->base_url = input.inputs[0].GetValue<std::string>();
 
+	// Auto-prepend https:// if no protocol specified
+	if (bind_data->base_url.find("://") == std::string::npos) {
+		bind_data->base_url = "https://" + bind_data->base_url;
+	}
+
 	// Parse named parameters
 	for (auto &kv : input.named_parameters) {
 		auto key = StringUtil::Lower(kv.first);
