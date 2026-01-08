@@ -4,6 +4,7 @@
 #include "xml_parser.hpp"
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/main/client_context.hpp"
+#include "duckdb/main/config.hpp"
 #include "duckdb/common/exception.hpp"
 #include <algorithm>
 #include <unordered_map>
@@ -17,6 +18,7 @@ struct SitemapBindData : public TableFunctionData {
 	int max_depth = 3;
 	bool ignore_errors = false;
 	RetryConfig retry_config;
+	std::string user_agent;
 };
 
 // Session-level cache for discovered sitemap URLs
@@ -84,7 +86,7 @@ static void FetchSitemap(ClientContext &context, const std::string &sitemap_url,
 		return; // Prevent infinite recursion
 	}
 
-	auto response = HttpClient::Fetch(context, sitemap_url, bind_data.retry_config);
+	auto response = HttpClient::Fetch(context, sitemap_url, bind_data.retry_config, bind_data.user_agent);
 
 	if (!response.success) {
 		std::lock_guard<std::mutex> lock(state.mutex);
@@ -166,6 +168,12 @@ static unique_ptr<FunctionData> SitemapBind(ClientContext &context, TableFunctio
 		throw InvalidInputException("sitemap_urls() first argument must be VARCHAR or LIST(VARCHAR)");
 	}
 
+	// Get user agent from extension setting
+	Value user_agent_value;
+	if (context.TryGetCurrentSetting("sitemap_user_agent", user_agent_value)) {
+		bind_data->user_agent = user_agent_value.GetValue<std::string>();
+	}
+
 	// Parse named parameters
 	for (auto &kv : input.named_parameters) {
 		auto key = StringUtil::Lower(kv.first);
@@ -224,7 +232,7 @@ static std::vector<std::string> DiscoverSitemapUrls(ClientContext &context, cons
 	// 1. Try robots.txt
 	if (bind_data.follow_robots) {
 		std::string robots_url = BuildUrl(base_url, "/robots.txt");
-		auto response = HttpClient::Fetch(context, robots_url, bind_data.retry_config);
+		auto response = HttpClient::Fetch(context, robots_url, bind_data.retry_config, bind_data.user_agent);
 
 		if (response.success) {
 			sitemap_urls = RobotsParser::ParseSitemapUrls(response.body);
@@ -237,7 +245,7 @@ static std::vector<std::string> DiscoverSitemapUrls(ClientContext &context, cons
 
 	// 2. Try /sitemap.xml
 	std::string sitemap_xml_url = BuildUrl(base_url, "/sitemap.xml");
-	auto sitemap_response = HttpClient::Fetch(context, sitemap_xml_url, bind_data.retry_config);
+	auto sitemap_response = HttpClient::Fetch(context, sitemap_xml_url, bind_data.retry_config, bind_data.user_agent);
 	if (sitemap_response.success) {
 		sitemap_urls.push_back(sitemap_xml_url);
 		cache.Set(base_url, sitemap_urls);
@@ -246,7 +254,7 @@ static std::vector<std::string> DiscoverSitemapUrls(ClientContext &context, cons
 
 	// 3. Try /sitemap_index.xml
 	std::string sitemap_index_url = BuildUrl(base_url, "/sitemap_index.xml");
-	auto index_response = HttpClient::Fetch(context, sitemap_index_url, bind_data.retry_config);
+	auto index_response = HttpClient::Fetch(context, sitemap_index_url, bind_data.retry_config, bind_data.user_agent);
 	if (index_response.success) {
 		sitemap_urls.push_back(sitemap_index_url);
 		cache.Set(base_url, sitemap_urls);
@@ -255,7 +263,7 @@ static std::vector<std::string> DiscoverSitemapUrls(ClientContext &context, cons
 
 	// 4. Try parsing HTML from homepage
 	std::string homepage_url = base_url;
-	auto html_response = HttpClient::Fetch(context, homepage_url, bind_data.retry_config);
+	auto html_response = HttpClient::Fetch(context, homepage_url, bind_data.retry_config, bind_data.user_agent);
 	if (html_response.success) {
 		auto html_sitemaps = XmlParser::FindSitemapInHtml(html_response.body);
 		if (!html_sitemaps.empty()) {

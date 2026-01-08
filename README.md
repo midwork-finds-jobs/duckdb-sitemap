@@ -13,6 +13,7 @@ A DuckDB extension for parsing XML sitemaps from websites, with automatic discov
 - 🌐 **Multiple namespace support** - handles both standard and Google sitemap schemas
 - ⚡ **SQL filtering** - use WHERE clauses to filter URLs before processing
 - 📋 **Array support** - process multiple domains in a single call
+- 🤖 **Custom user agent** - configurable via `SET sitemap_user_agent`
 
 ## Installation
 
@@ -89,6 +90,19 @@ This function tries patterns like:
 - And 580+ more variations
 
 **Note**: This makes many HTTP requests. Use only when normal discovery fails.
+
+### Custom User Agent
+
+Set a custom User-Agent header for all sitemap requests:
+
+```sql
+-- Set custom user agent (default: 'DuckDB-Sitemap/1.0')
+SET sitemap_user_agent = 'MyBot/1.0 (https://example.com/bot)';
+
+-- All subsequent requests use this user agent
+SELECT * FROM sitemap_urls('https://example.com');
+SELECT bruteforce_find_sitemap('https://example.com');
+```
 
 ### Array Support
 

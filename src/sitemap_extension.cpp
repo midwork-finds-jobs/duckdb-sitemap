@@ -7,11 +7,20 @@
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/main/connection.hpp"
+#include "duckdb/main/config.hpp"
 
 namespace duckdb {
 
 static void LoadInternal(ExtensionLoader &loader) {
 	auto &db = loader.GetDatabaseInstance();
+	auto &config = DBConfig::GetConfig(db);
+
+	// Register sitemap_user_agent setting
+	config.AddExtensionOption("sitemap_user_agent",
+	                          "User agent string for sitemap HTTP requests",
+	                          LogicalType::VARCHAR,
+	                          Value("DuckDB-Sitemap/1.0"));
+
 	Connection conn(db);
 
 	// Install and load http_request from community

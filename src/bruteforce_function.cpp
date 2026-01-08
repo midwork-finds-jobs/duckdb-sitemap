@@ -3,6 +3,7 @@
 #include "http_client.hpp"
 #include "duckdb/function/scalar_function.hpp"
 #include "duckdb/main/client_context.hpp"
+#include "duckdb/main/config.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/string_util.hpp"
 
@@ -26,6 +27,13 @@ static std::string BuildUrl(const std::string &base_url, const std::string &path
 // Scalar function implementation
 static void BruteforceFindSitemapFunction(DataChunk &args, ExpressionState &state, Vector &result) {
 	auto &context = state.GetContext();
+
+	// Get user agent from extension setting
+	std::string user_agent;
+	Value user_agent_value;
+	if (context.TryGetCurrentSetting("sitemap_user_agent", user_agent_value)) {
+		user_agent = user_agent_value.GetValue<std::string>();
+	}
 
 	// Get base_url from first argument
 	auto &base_url_vector = args.data[0];
@@ -65,7 +73,7 @@ static void BruteforceFindSitemapFunction(DataChunk &args, ExpressionState &stat
 			for (const auto &filetype : filetypes) {
 				std::string url = BuildUrl(base_url, filename + "." + filetype);
 
-				auto response = HttpClient::Fetch(context, url, retry_config);
+				auto response = HttpClient::Fetch(context, url, retry_config, user_agent);
 
 				// Check if we got a successful response with appropriate content type
 				if (response.success && response.status_code >= 200 && response.status_code < 300) {

@@ -24,10 +24,11 @@ struct RetryConfig {
 
 class HttpClient {
 public:
-	static HttpResponse Fetch(ClientContext &context, const std::string &url, const RetryConfig &config);
+	static HttpResponse Fetch(ClientContext &context, const std::string &url, const RetryConfig &config,
+	                          const std::string &user_agent = "");
 
 private:
-	static HttpResponse ExecuteHttpGet(DatabaseInstance &db, const std::string &url);
+	static HttpResponse ExecuteHttpGet(DatabaseInstance &db, const std::string &url, const std::string &user_agent);
 	static bool IsRetryable(int status_code);
 	static int ParseRetryAfter(const std::string &retry_after);
 };

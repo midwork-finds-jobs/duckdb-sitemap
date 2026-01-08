@@ -31,3 +31,29 @@ statement error
 SELECT * FROM sitemap_urls(CAST([] AS VARCHAR[]));
 ----
 sitemap_urls() requires at least one URL
+
+# Test sitemap_user_agent setting exists with default value
+query I
+SELECT current_setting('sitemap_user_agent');
+----
+DuckDB-Sitemap/1.0
+
+# Test setting custom user agent
+statement ok
+SET sitemap_user_agent = 'TestBot/1.0';
+
+# Verify custom user agent is set
+query I
+SELECT current_setting('sitemap_user_agent');
+----
+TestBot/1.0
+
+# Test resetting user agent
+statement ok
+RESET sitemap_user_agent;
+
+# Verify user agent is reset to default
+query I
+SELECT current_setting('sitemap_user_agent');
+----
+DuckDB-Sitemap/1.0

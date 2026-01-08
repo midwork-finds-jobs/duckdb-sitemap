@@ -40,7 +40,7 @@ int HttpClient::ParseRetryAfter(const std::string &retry_after) {
 	}
 }
 
-HttpResponse HttpClient::ExecuteHttpGet(DatabaseInstance &db, const std::string &url) {
+HttpResponse HttpClient::ExecuteHttpGet(DatabaseInstance &db, const std::string &url, const std::string &user_agent) {
 	HttpResponse response;
 
 	Connection conn(db);
@@ -56,12 +56,23 @@ HttpResponse HttpClient::ExecuteHttpGet(DatabaseInstance &db, const std::string 
 	std::string escaped_url = StringUtil::Replace(url, "'", "''");
 
 	// Build query - request headers to get Retry-After
-	std::string query = StringUtil::Format(
-	    "SELECT status, decode(body) AS body, "
-	    "content_type, "
-	    "headers['retry-after'] AS retry_after "
-	    "FROM http_get('%s')",
-	    escaped_url);
+	std::string query;
+	if (!user_agent.empty()) {
+		std::string escaped_ua = StringUtil::Replace(user_agent, "'", "''");
+		query = StringUtil::Format(
+		    "SELECT status, decode(body) AS body, "
+		    "content_type, "
+		    "headers['retry-after'] AS retry_after "
+		    "FROM http_get('%s', headers := {'User-Agent': '%s'})",
+		    escaped_url, escaped_ua);
+	} else {
+		query = StringUtil::Format(
+		    "SELECT status, decode(body) AS body, "
+		    "content_type, "
+		    "headers['retry-after'] AS retry_after "
+		    "FROM http_get('%s')",
+		    escaped_url);
+	}
 
 	auto result = conn.Query(query);
 
@@ -98,11 +109,12 @@ HttpResponse HttpClient::ExecuteHttpGet(DatabaseInstance &db, const std::string 
 	return response;
 }
 
-HttpResponse HttpClient::Fetch(ClientContext &context, const std::string &url, const RetryConfig &config) {
+HttpResponse HttpClient::Fetch(ClientContext &context, const std::string &url, const RetryConfig &config,
+                               const std::string &user_agent) {
 	auto &db = DatabaseInstance::GetDatabase(context);
 
 	for (int attempt = 0; attempt <= config.max_retries; attempt++) {
-		auto response = ExecuteHttpGet(db, url);
+		auto response = ExecuteHttpGet(db, url, user_agent);
 
 		if (response.success) {
 			return response;
