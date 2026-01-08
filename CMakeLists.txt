@@ -18,6 +18,8 @@ set(EXTENSION_SOURCES
     src/robots_parser.cpp
     src/xml_parser.cpp
     src/http_client.cpp
+    src/bruteforce_function.cpp
+    src/bruteforce_finder.cpp
 )
 
 build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})

@@ -4,12 +4,15 @@ A DuckDB extension for parsing XML sitemaps from websites, with automatic discov
 
 ## Features
 
-- 🔍 **Automatic sitemap discovery** from `/robots.txt`
+- 🔍 **Automatic sitemap discovery** from `/robots.txt`, `/sitemap.xml`, `/sitemap_index.xml`, and HTML meta tags
+- 💾 **Session caching** - discovered sitemap locations cached for instant repeat queries
+- 🔨 **Bruteforce finder** - tries 587+ common sitemap URL patterns
 - 🗂️ **Sitemap index support** - recursively fetches nested sitemaps
 - 🔄 **Retry logic** with exponential backoff and `Retry-After` header support
 - 📦 **Gzip support** - automatically decompresses `.xml.gz` sitemaps
 - 🌐 **Multiple namespace support** - handles both standard and Google sitemap schemas
 - ⚡ **SQL filtering** - use WHERE clauses to filter URLs before processing
+- 📋 **Array support** - process multiple domains in a single call
 
 ## Installation
 
@@ -64,6 +67,41 @@ SELECT * FROM sitemap_urls(
     max_retries := 5,           -- Max retry attempts (default: 5)
     backoff_ms := 100,          -- Initial backoff in ms (default: 100)
     max_backoff_ms := 30000     -- Max backoff cap in ms (default: 30000)
+);
+```
+
+### Bruteforce Sitemap Discovery
+
+When standard discovery methods fail, use bruteforce to try 587+ common sitemap URL patterns:
+
+```sql
+-- Find sitemap by trying common patterns
+SELECT bruteforce_find_sitemap('https://example.com') as sitemap_url;
+
+-- Returns the first working sitemap URL or NULL if none found
+```
+
+This function tries patterns like:
+- `/sitemap.xml`, `/sitemap_index.xml`
+- `/sitemap/sitemap.xml`, `/sitemaps/sitemap-index.xml`
+- `/en/sitemap.xml`, `/de/sitemap.xml`
+- `/pub/media/sitemap.xml`
+- And 580+ more variations
+
+**Note**: This makes many HTTP requests. Use only when normal discovery fails.
+
+### Array Support
+
+Process multiple domains in a single call:
+
+```sql
+-- Get URLs from multiple sites
+SELECT * FROM sitemap_urls(['example.com', 'google.com']);
+
+-- With error handling
+SELECT * FROM sitemap_urls(
+    ['valid.com', 'invalid.com'],
+    ignore_errors := true
 );
 ```
 
@@ -123,6 +161,10 @@ make GEN=ninja
 ## License
 
 MIT
+
+## Acknowledgements
+
+- [sitemap-finder](https://github.com/Abromeit/sitemap-finder) by Abromeit - Sitemap URL patterns used in `bruteforce_find_sitemap()` (MIT License)
 
 ## Contributing
 

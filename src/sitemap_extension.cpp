@@ -2,6 +2,7 @@
 
 #include "sitemap_extension.hpp"
 #include "sitemap_function.hpp"
+#include "bruteforce_function.hpp"
 #include "xml_parser.hpp"
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
@@ -31,6 +32,9 @@ static void LoadInternal(ExtensionLoader &loader) {
 
 	// Register sitemap_urls() table function
 	RegisterSitemapFunction(loader);
+
+	// Register bruteforce_find_sitemap() scalar function
+	RegisterBruteforceFunction(loader);
 }
 
 void SitemapExtension::Load(ExtensionLoader &loader) {
