@@ -191,10 +191,27 @@ static unique_ptr<FunctionData> SitemapBind(ClientContext &context, TableFunctio
 	return std::move(bind_data);
 }
 
+// Check if URL points directly to a sitemap file
+static bool IsSitemapUrl(const std::string &url) {
+	std::string lower_url = url;
+	std::transform(lower_url.begin(), lower_url.end(), lower_url.begin(),
+	               [](unsigned char c) { return std::tolower(c); });
+
+	// Check for common sitemap file patterns
+	return lower_url.find("sitemap") != std::string::npos &&
+	       (lower_url.find(".xml") != std::string::npos ||
+	        lower_url.find(".xml.gz") != std::string::npos);
+}
+
 // Discover sitemap URLs for a base URL using multiple fallback methods
 static std::vector<std::string> DiscoverSitemapUrls(ClientContext &context, const std::string &base_url,
                                                      const SitemapBindData &bind_data) {
 	auto &cache = SitemapCache::GetInstance();
+
+	// If URL points directly to sitemap, use it without discovery
+	if (IsSitemapUrl(base_url)) {
+		return {base_url};
+	}
 
 	// Check cache first
 	auto cached = cache.Get(base_url);
