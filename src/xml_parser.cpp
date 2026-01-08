@@ -1,4 +1,5 @@
 #include "xml_parser.hpp"
+#include <libxml/HTMLparser.h>
 #include <zlib.h>
 #include <cstring>
 #include <algorithm>
@@ -281,6 +282,48 @@ std::string XmlParser::DecompressGzip(const std::string &compressed) {
 
 	inflateEnd(&zs);
 	return decompressed;
+}
+
+std::vector<std::string> XmlParser::FindSitemapInHtml(const std::string &html_content) {
+	std::vector<std::string> sitemaps;
+
+	// Parse HTML with libxml2 in HTML mode
+	xmlDocPtr doc = htmlReadMemory(html_content.c_str(), static_cast<int>(html_content.size()),
+	                               nullptr, nullptr,
+	                               HTML_PARSE_RECOVER | HTML_PARSE_NOERROR | HTML_PARSE_NOWARNING);
+
+	if (!doc) {
+		return sitemaps;
+	}
+
+	xmlXPathContextPtr xpath_ctx = xmlXPathNewContext(doc);
+	if (!xpath_ctx) {
+		xmlFreeDoc(doc);
+		return sitemaps;
+	}
+
+	// Look for <link rel="sitemap"> tags
+	const char *link_xpath = "//link[@rel='sitemap' or @rel='Sitemap']/@href";
+	xmlXPathObjectPtr link_nodes = xmlXPathEvalExpression(BAD_CAST link_xpath, xpath_ctx);
+
+	if (link_nodes && link_nodes->nodesetval) {
+		for (int i = 0; i < link_nodes->nodesetval->nodeNr; i++) {
+			xmlNodePtr node = link_nodes->nodesetval->nodeTab[i];
+			xmlChar *href = xmlNodeGetContent(node);
+			if (href) {
+				sitemaps.push_back(reinterpret_cast<const char *>(href));
+				xmlFree(href);
+			}
+		}
+	}
+	if (link_nodes) {
+		xmlXPathFreeObject(link_nodes);
+	}
+
+	xmlXPathFreeContext(xpath_ctx);
+	xmlFreeDoc(doc);
+
+	return sitemaps;
 }
 
 } // namespace duckdb

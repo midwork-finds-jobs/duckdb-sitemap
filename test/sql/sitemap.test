@@ -14,17 +14,17 @@ SELECT * FROM sitemap_urls();
 ----
 No function matches the given name and argument types
 
-# Test sitemap_urls function exists with single string argument (will fail to fetch)
+# Test sitemap_urls function exists with single string argument (will fail to find)
 statement error
 SELECT * FROM sitemap_urls('example.com');
 ----
-Failed to fetch sitemap from
+Failed to find sitemap for
 
-# Test sitemap_urls function exists with array argument (will fail to fetch)
+# Test sitemap_urls function exists with array argument (will fail to find)
 statement error
 SELECT * FROM sitemap_urls(['example.com', 'google.com']);
 ----
-Failed to fetch sitemap from
+Failed to find sitemap for
 
 # Test empty array (should throw error during bind)
 statement error

@@ -6,6 +6,7 @@
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/common/exception.hpp"
 #include <algorithm>
+#include <unordered_map>
 
 namespace duckdb {
 
@@ -16,6 +17,31 @@ struct SitemapBindData : public TableFunctionData {
 	int max_depth = 3;
 	bool ignore_errors = false;
 	RetryConfig retry_config;
+};
+
+// Session-level cache for discovered sitemap URLs
+struct SitemapCache {
+	std::unordered_map<std::string, std::vector<std::string>> discovered_sitemaps;
+	std::mutex cache_mutex;
+
+	static SitemapCache &GetInstance() {
+		static SitemapCache instance;
+		return instance;
+	}
+
+	std::vector<std::string> Get(const std::string &base_url) {
+		std::lock_guard<std::mutex> lock(cache_mutex);
+		auto it = discovered_sitemaps.find(base_url);
+		if (it != discovered_sitemaps.end()) {
+			return it->second;
+		}
+		return {};
+	}
+
+	void Set(const std::string &base_url, const std::vector<std::string> &sitemaps) {
+		std::lock_guard<std::mutex> lock(cache_mutex);
+		discovered_sitemaps[base_url] = sitemaps;
+	}
 };
 
 // Global state for sitemap_urls() table function
@@ -165,6 +191,78 @@ static unique_ptr<FunctionData> SitemapBind(ClientContext &context, TableFunctio
 	return std::move(bind_data);
 }
 
+// Discover sitemap URLs for a base URL using multiple fallback methods
+static std::vector<std::string> DiscoverSitemapUrls(ClientContext &context, const std::string &base_url,
+                                                     const SitemapBindData &bind_data) {
+	auto &cache = SitemapCache::GetInstance();
+
+	// Check cache first
+	auto cached = cache.Get(base_url);
+	if (!cached.empty()) {
+		return cached;
+	}
+
+	std::vector<std::string> sitemap_urls;
+
+	// 1. Try robots.txt
+	if (bind_data.follow_robots) {
+		std::string robots_url = BuildUrl(base_url, "/robots.txt");
+		auto response = HttpClient::Fetch(context, robots_url, bind_data.retry_config);
+
+		if (response.success) {
+			sitemap_urls = RobotsParser::ParseSitemapUrls(response.body);
+			if (!sitemap_urls.empty()) {
+				cache.Set(base_url, sitemap_urls);
+				return sitemap_urls;
+			}
+		}
+	}
+
+	// 2. Try /sitemap.xml
+	std::string sitemap_xml_url = BuildUrl(base_url, "/sitemap.xml");
+	auto sitemap_response = HttpClient::Fetch(context, sitemap_xml_url, bind_data.retry_config);
+	if (sitemap_response.success) {
+		sitemap_urls.push_back(sitemap_xml_url);
+		cache.Set(base_url, sitemap_urls);
+		return sitemap_urls;
+	}
+
+	// 3. Try /sitemap_index.xml
+	std::string sitemap_index_url = BuildUrl(base_url, "/sitemap_index.xml");
+	auto index_response = HttpClient::Fetch(context, sitemap_index_url, bind_data.retry_config);
+	if (index_response.success) {
+		sitemap_urls.push_back(sitemap_index_url);
+		cache.Set(base_url, sitemap_urls);
+		return sitemap_urls;
+	}
+
+	// 4. Try parsing HTML from homepage
+	std::string homepage_url = base_url;
+	auto html_response = HttpClient::Fetch(context, homepage_url, bind_data.retry_config);
+	if (html_response.success) {
+		auto html_sitemaps = XmlParser::FindSitemapInHtml(html_response.body);
+		if (!html_sitemaps.empty()) {
+			// Convert relative URLs to absolute
+			for (auto &sitemap_url : html_sitemaps) {
+				if (sitemap_url.find("://") == std::string::npos) {
+					// Relative URL - make it absolute
+					if (sitemap_url[0] == '/') {
+						sitemap_url = base_url + sitemap_url;
+					} else {
+						sitemap_url = base_url + "/" + sitemap_url;
+					}
+				}
+				sitemap_urls.push_back(sitemap_url);
+			}
+			cache.Set(base_url, sitemap_urls);
+			return sitemap_urls;
+		}
+	}
+
+	// Nothing found - return empty (will trigger error if ignore_errors=false)
+	return sitemap_urls;
+}
+
 // Global init - fetch all sitemaps
 static unique_ptr<GlobalTableFunctionState> SitemapInitGlobal(ClientContext &context, TableFunctionInitInput &input) {
 	auto state = make_uniq<SitemapGlobalState>();
@@ -172,22 +270,8 @@ static unique_ptr<GlobalTableFunctionState> SitemapInitGlobal(ClientContext &con
 
 	// Process each base URL
 	for (const auto &base_url : bind_data.base_urls) {
-		std::vector<std::string> sitemap_urls;
-
-		if (bind_data.follow_robots) {
-			// Fetch robots.txt
-			std::string robots_url = BuildUrl(base_url, "/robots.txt");
-			auto response = HttpClient::Fetch(context, robots_url, bind_data.retry_config);
-
-			if (response.success) {
-				sitemap_urls = RobotsParser::ParseSitemapUrls(response.body);
-			}
-		}
-
-		// If no sitemaps found in robots.txt, try common locations
-		if (sitemap_urls.empty()) {
-			sitemap_urls.push_back(BuildUrl(base_url, "/sitemap.xml"));
-		}
+		// Discover sitemap URLs using fallback methods
+		std::vector<std::string> sitemap_urls = DiscoverSitemapUrls(context, base_url, bind_data);
 
 		// Track initial error count
 		size_t initial_error_count = state->errors.size();
@@ -204,7 +288,7 @@ static unique_ptr<GlobalTableFunctionState> SitemapInitGlobal(ClientContext &con
 
 		// If no URLs found and not ignoring errors, throw exception
 		if (!found_urls && !bind_data.ignore_errors) {
-			std::string error_msg = "Failed to fetch sitemap from " + base_url;
+			std::string error_msg = "Failed to find sitemap for " + base_url;
 			if (had_errors && !state->errors.empty()) {
 				// Include the last error message
 				error_msg += ": " + state->errors.back();

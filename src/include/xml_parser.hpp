@@ -58,6 +58,7 @@ public:
 	static SitemapParseResult ParseSitemap(const std::string &xml_content);
 	static std::string DecompressGzip(const std::string &compressed);
 	static bool IsGzipped(const std::string &url, const std::string &content_type);
+	static std::vector<std::string> FindSitemapInHtml(const std::string &html_content);
 };
 
 } // namespace duckdb
