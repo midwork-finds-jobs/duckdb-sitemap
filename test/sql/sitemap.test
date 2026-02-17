@@ -2,6 +2,8 @@
 # description: Test sitemap extension
 # group: [sql]
 
+require http_request
+
 require sitemap
 
 # Test that extension loads
