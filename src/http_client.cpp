@@ -59,19 +59,17 @@ HttpResponse HttpClient::ExecuteHttpGet(DatabaseInstance &db, const std::string 
 	std::string query;
 	if (!user_agent.empty()) {
 		std::string escaped_ua = StringUtil::Replace(user_agent, "'", "''");
-		query = StringUtil::Format(
-		    "SELECT status, decode(body) AS body, "
-		    "content_type, "
-		    "headers['retry-after'] AS retry_after "
-		    "FROM http_get('%s', headers := {'User-Agent': '%s'})",
-		    escaped_url, escaped_ua);
+		query = StringUtil::Format("SELECT status, decode(body) AS body, "
+		                           "content_type, "
+		                           "headers['retry-after'] AS retry_after "
+		                           "FROM http_get('%s', headers := {'User-Agent': '%s'})",
+		                           escaped_url, escaped_ua);
 	} else {
-		query = StringUtil::Format(
-		    "SELECT status, decode(body) AS body, "
-		    "content_type, "
-		    "headers['retry-after'] AS retry_after "
-		    "FROM http_get('%s')",
-		    escaped_url);
+		query = StringUtil::Format("SELECT status, decode(body) AS body, "
+		                           "content_type, "
+		                           "headers['retry-after'] AS retry_after "
+		                           "FROM http_get('%s')",
+		                           escaped_url);
 	}
 
 	auto result = conn.Query(query);

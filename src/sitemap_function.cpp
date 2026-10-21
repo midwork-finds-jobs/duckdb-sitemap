@@ -128,7 +128,7 @@ static void FetchSitemap(ClientContext &context, const std::string &sitemap_url,
 
 // Bind function
 static unique_ptr<FunctionData> SitemapBind(ClientContext &context, TableFunctionBindInput &input,
-                                            vector<LogicalType> &return_types, vector<string> &names) {
+                                            vector<LogicalType> &return_types, vector<Identifier> &names) {
 	auto bind_data = make_uniq<SitemapBindData>();
 
 	// First positional argument is the base URL(s)
@@ -176,7 +176,10 @@ static unique_ptr<FunctionData> SitemapBind(ClientContext &context, TableFunctio
 
 	// Parse named parameters
 	for (auto &kv : input.named_parameters) {
-		auto key = StringUtil::Lower(kv.first);
+		if (kv.second.IsNull()) {
+			continue;
+		}
+		auto key = StringUtil::Lower(kv.first.GetIdentifierName());
 		if (key == "follow_robots") {
 			bind_data->follow_robots = kv.second.GetValue<bool>();
 		} else if (key == "max_depth") {
@@ -207,13 +210,12 @@ static bool IsSitemapUrl(const std::string &url) {
 
 	// Check for common sitemap file patterns
 	return lower_url.find("sitemap") != std::string::npos &&
-	       (lower_url.find(".xml") != std::string::npos ||
-	        lower_url.find(".xml.gz") != std::string::npos);
+	       (lower_url.find(".xml") != std::string::npos || lower_url.find(".xml.gz") != std::string::npos);
 }
 
 // Discover sitemap URLs for a base URL using multiple fallback methods
 static std::vector<std::string> DiscoverSitemapUrls(ClientContext &context, const std::string &base_url,
-                                                     const SitemapBindData &bind_data) {
+                                                    const SitemapBindData &bind_data) {
 	auto &cache = SitemapCache::GetInstance();
 
 	// If URL points directly to sitemap, use it without discovery
@@ -328,7 +330,7 @@ static unique_ptr<GlobalTableFunctionState> SitemapInitGlobal(ClientContext &con
 
 // Local init
 static unique_ptr<LocalTableFunctionState> SitemapInitLocal(ExecutionContext &context, TableFunctionInitInput &input,
-                                                             GlobalTableFunctionState *global_state) {
+                                                            GlobalTableFunctionState *global_state) {
 	return make_uniq<SitemapLocalState>();
 }
 
@@ -360,26 +362,28 @@ void RegisterSitemapFunction(ExtensionLoader &loader) {
 	sitemap_func.init_local = SitemapInitLocal;
 
 	// Named parameters
-	sitemap_func.named_parameters["follow_robots"] = LogicalType::BOOLEAN;
-	sitemap_func.named_parameters["max_depth"] = LogicalType::INTEGER;
-	sitemap_func.named_parameters["max_retries"] = LogicalType::INTEGER;
-	sitemap_func.named_parameters["backoff_ms"] = LogicalType::INTEGER;
-	sitemap_func.named_parameters["max_backoff_ms"] = LogicalType::INTEGER;
-	sitemap_func.named_parameters["ignore_errors"] = LogicalType::BOOLEAN;
+	sitemap_func.GetSignature().AddKeywordOnly("follow_robots", LogicalType::BOOLEAN, Value(LogicalType::BOOLEAN));
+	sitemap_func.GetSignature().AddKeywordOnly("max_depth", LogicalType::INTEGER, Value(LogicalType::INTEGER));
+	sitemap_func.GetSignature().AddKeywordOnly("max_retries", LogicalType::INTEGER, Value(LogicalType::INTEGER));
+	sitemap_func.GetSignature().AddKeywordOnly("backoff_ms", LogicalType::INTEGER, Value(LogicalType::INTEGER));
+	sitemap_func.GetSignature().AddKeywordOnly("max_backoff_ms", LogicalType::INTEGER, Value(LogicalType::INTEGER));
+	sitemap_func.GetSignature().AddKeywordOnly("ignore_errors", LogicalType::BOOLEAN, Value(LogicalType::BOOLEAN));
 
 	loader.RegisterFunction(sitemap_func);
 
 	// Register function with LIST parameter (array of URLs)
-	TableFunction sitemap_func_list("sitemap_urls", {LogicalType::LIST(LogicalType::VARCHAR)}, SitemapScan, SitemapBind, SitemapInitGlobal);
+	TableFunction sitemap_func_list("sitemap_urls", {LogicalType::LIST(LogicalType::VARCHAR)}, SitemapScan, SitemapBind,
+	                                SitemapInitGlobal);
 	sitemap_func_list.init_local = SitemapInitLocal;
 
 	// Named parameters
-	sitemap_func_list.named_parameters["follow_robots"] = LogicalType::BOOLEAN;
-	sitemap_func_list.named_parameters["max_depth"] = LogicalType::INTEGER;
-	sitemap_func_list.named_parameters["max_retries"] = LogicalType::INTEGER;
-	sitemap_func_list.named_parameters["backoff_ms"] = LogicalType::INTEGER;
-	sitemap_func_list.named_parameters["max_backoff_ms"] = LogicalType::INTEGER;
-	sitemap_func_list.named_parameters["ignore_errors"] = LogicalType::BOOLEAN;
+	sitemap_func_list.GetSignature().AddKeywordOnly("follow_robots", LogicalType::BOOLEAN, Value(LogicalType::BOOLEAN));
+	sitemap_func_list.GetSignature().AddKeywordOnly("max_depth", LogicalType::INTEGER, Value(LogicalType::INTEGER));
+	sitemap_func_list.GetSignature().AddKeywordOnly("max_retries", LogicalType::INTEGER, Value(LogicalType::INTEGER));
+	sitemap_func_list.GetSignature().AddKeywordOnly("backoff_ms", LogicalType::INTEGER, Value(LogicalType::INTEGER));
+	sitemap_func_list.GetSignature().AddKeywordOnly("max_backoff_ms", LogicalType::INTEGER,
+	                                                Value(LogicalType::INTEGER));
+	sitemap_func_list.GetSignature().AddKeywordOnly("ignore_errors", LogicalType::BOOLEAN, Value(LogicalType::BOOLEAN));
 
 	loader.RegisterFunction(sitemap_func_list);
 }
