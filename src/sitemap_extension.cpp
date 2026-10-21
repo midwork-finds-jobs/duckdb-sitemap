@@ -16,9 +16,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	auto &config = DBConfig::GetConfig(db);
 
 	// Register sitemap_user_agent setting
-	config.AddExtensionOption("sitemap_user_agent",
-	                          "User agent string for sitemap HTTP requests",
-	                          LogicalType::VARCHAR,
+	config.AddExtensionOption("sitemap_user_agent", "User agent string for sitemap HTTP requests", LogicalType::VARCHAR,
 	                          Value("DuckDB-Sitemap/1.0"));
 
 	Connection conn(db);

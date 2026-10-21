@@ -1,6 +1,8 @@
 # name: test/sql/sitemap.test
 # description: Test sitemap extension
-# group: [sitemap]
+# group: [sql]
+
+require http_request
 
 require sitemap
 

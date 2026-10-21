@@ -33,10 +33,8 @@ XMLDocRAII::XMLDocRAII(const std::string &content) {
 		xpath_ctx = xmlXPathNewContext(doc);
 		if (xpath_ctx) {
 			// Register both sitemap namespace variants
-			xmlXPathRegisterNs(xpath_ctx, BAD_CAST "sm",
-			                   BAD_CAST "http://www.sitemaps.org/schemas/sitemap/0.9");
-			xmlXPathRegisterNs(xpath_ctx, BAD_CAST "sm2",
-			                   BAD_CAST "http://www.google.com/schemas/sitemap/0.84");
+			xmlXPathRegisterNs(xpath_ctx, BAD_CAST "sm", BAD_CAST "http://www.sitemaps.org/schemas/sitemap/0.9");
+			xmlXPathRegisterNs(xpath_ctx, BAD_CAST "sm2", BAD_CAST "http://www.google.com/schemas/sitemap/0.84");
 		}
 	}
 }
@@ -242,8 +240,7 @@ bool XmlParser::IsGzipped(const std::string &url, const std::string &content_typ
 
 std::string XmlParser::DecompressGzip(const std::string &compressed) {
 	// Check for gzip magic bytes
-	if (compressed.size() < 2 ||
-	    static_cast<unsigned char>(compressed[0]) != 0x1f ||
+	if (compressed.size() < 2 || static_cast<unsigned char>(compressed[0]) != 0x1f ||
 	    static_cast<unsigned char>(compressed[1]) != 0x8b) {
 		// Not gzipped, return as-is
 		return compressed;
@@ -288,8 +285,7 @@ std::vector<std::string> XmlParser::FindSitemapInHtml(const std::string &html_co
 	std::vector<std::string> sitemaps;
 
 	// Parse HTML with libxml2 in HTML mode
-	xmlDocPtr doc = htmlReadMemory(html_content.c_str(), static_cast<int>(html_content.size()),
-	                               nullptr, nullptr,
+	xmlDocPtr doc = htmlReadMemory(html_content.c_str(), static_cast<int>(html_content.size()), nullptr, nullptr,
 	                               HTML_PARSE_RECOVER | HTML_PARSE_NOERROR | HTML_PARSE_NOWARNING);
 
 	if (!doc) {

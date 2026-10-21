@@ -22,8 +22,8 @@ enum class SitemapType {
 
 struct SitemapParseResult {
 	SitemapType type;
-	std::vector<SitemapEntry> urls;      // For URLSET
-	std::vector<std::string> sitemaps;   // For SITEMAPINDEX
+	std::vector<SitemapEntry> urls;    // For URLSET
+	std::vector<std::string> sitemaps; // For SITEMAPINDEX
 	std::string error;
 	bool success = false;
 };
