@@ -47,8 +47,8 @@ static void BruteforceFindSitemapFunction(DataChunk &args, ExpressionState &stat
 	auto filenames = BruteforceFinder::GetFilenames();
 	auto filetypes = BruteforceFinder::GetFiletypes();
 
-	auto result_data = FlatVector::GetData<string_t>(result);
-	auto &result_validity = FlatVector::Validity(result);
+	auto result_data = FlatVector::GetDataMutable<string_t>(result);
+	auto &result_validity = FlatVector::ValidityMutable(result);
 
 	for (idx_t i = 0; i < args.size(); i++) {
 		auto idx = base_url_data.sel->get_index(i);
@@ -78,8 +78,8 @@ static void BruteforceFindSitemapFunction(DataChunk &args, ExpressionState &stat
 				// Check if we got a successful response with appropriate content type
 				if (response.success && response.status_code >= 200 && response.status_code < 300) {
 					std::string content_type_lower = response.content_type;
-					std::transform(content_type_lower.begin(), content_type_lower.end(),
-					              content_type_lower.begin(), ::tolower);
+					std::transform(content_type_lower.begin(), content_type_lower.end(), content_type_lower.begin(),
+					               ::tolower);
 
 					// Check for xml, gzip, or plain text content types
 					if (content_type_lower.find("xml") != std::string::npos ||
@@ -106,12 +106,10 @@ static void BruteforceFindSitemapFunction(DataChunk &args, ExpressionState &stat
 }
 
 void RegisterBruteforceFunction(ExtensionLoader &loader) {
-	ScalarFunction bruteforce_func(
-		"bruteforce_find_sitemap",
-		{LogicalType::VARCHAR},
-		LogicalType::VARCHAR,
-		BruteforceFindSitemapFunction
-	);
+	ScalarFunction bruteforce_func("bruteforce_find_sitemap", {LogicalType::VARCHAR}, LogicalType::VARCHAR,
+	                               BruteforceFindSitemapFunction);
+	// Performs HTTP requests; DuckDB 2.0 requires functions that may raise errors to be marked fallible
+	bruteforce_func.SetFallible();
 
 	loader.RegisterFunction(bruteforce_func);
 }

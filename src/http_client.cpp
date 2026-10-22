@@ -1,6 +1,11 @@
 #include "http_client.hpp"
-#include "duckdb/main/connection.hpp"
+#include "duckdb/common/error_data.hpp"
+#include "duckdb/common/file_system.hpp"
+#include "duckdb/common/http_util.hpp"
 #include "duckdb/common/string_util.hpp"
+#include "duckdb/main/client_context.hpp"
+#include "duckdb/main/database.hpp"
+#include "duckdb/main/extension_helper.hpp"
 #include <thread>
 #include <chrono>
 #include <cmath>
@@ -40,81 +45,95 @@ int HttpClient::ParseRetryAfter(const std::string &retry_after) {
 	}
 }
 
-HttpResponse HttpClient::ExecuteHttpGet(DatabaseInstance &db, const std::string &url, const std::string &user_agent) {
+bool HttpClient::IsHttpUrl(const std::string &url) {
+	auto lower = StringUtil::Lower(url);
+	return StringUtil::StartsWith(lower, "http://") || StringUtil::StartsWith(lower, "https://");
+}
+
+HttpResponse HttpClient::ExecuteHttpGet(ClientContext &context, const std::string &url, const std::string &user_agent) {
 	HttpResponse response;
+	auto &db = DatabaseInstance::GetDatabase(context);
 
-	Connection conn(db);
-
-	// Load http_request in this connection
-	auto load_result = conn.Query("LOAD http_request");
-	if (load_result->HasError()) {
-		response.error = "Failed to load http_request: " + load_result->GetError();
-		return response;
+	// Core HTTPUtil has no TLS; httpfs replaces it with a TLS-capable client
+	if (StringUtil::StartsWith(StringUtil::Lower(url), "https://")) {
+		ExtensionHelper::TryAutoLoadExtension(db, "httpfs");
 	}
 
-	// Escape URL for SQL
-	std::string escaped_url = StringUtil::Replace(url, "'", "''");
+	try {
+		auto &http_util = HTTPUtil::Get(db);
+		auto params = http_util.InitializeParameters(context, url);
+		// Sitemap has its own retry loop (Retry-After aware)
+		params->retries = 0;
+		params->follow_location = true;
 
-	// Build query - request headers to get Retry-After
-	std::string query;
-	if (!user_agent.empty()) {
-		std::string escaped_ua = StringUtil::Replace(user_agent, "'", "''");
-		query = StringUtil::Format(
-		    "SELECT status, decode(body) AS body, "
-		    "content_type, "
-		    "headers['retry-after'] AS retry_after "
-		    "FROM http_get('%s', headers := {'User-Agent': '%s'})",
-		    escaped_url, escaped_ua);
-	} else {
-		query = StringUtil::Format(
-		    "SELECT status, decode(body) AS body, "
-		    "content_type, "
-		    "headers['retry-after'] AS retry_after "
-		    "FROM http_get('%s')",
-		    escaped_url);
-	}
+		HTTPHeaders headers(db);
+		if (!user_agent.empty()) {
+			headers["User-Agent"] = user_agent;
+		}
 
-	auto result = conn.Query(query);
+		GetRequestInfo get_request(url, headers, *params, nullptr, nullptr);
+		get_request.try_request = true;
 
-	if (result->HasError()) {
-		response.error = result->GetError();
+		auto http_response = http_util.Request(get_request);
+		if (!http_response) {
+			response.error = "No response from HTTP request";
+			return response;
+		}
+		if (http_response->HasRequestError()) {
+			response.error = http_response->GetRequestError();
+			return response;
+		}
+		response.status_code = static_cast<int>(http_response->status);
+		response.body = std::move(http_response->body);
+		response.content_type = http_response->GetHeaderValue("Content-Type");
+		response.retry_after = http_response->GetHeaderValue("Retry-After");
+	} catch (std::exception &ex) {
+		ErrorData error(ex);
+		response.error = error.RawMessage();
 		response.status_code = 0;
 		return response;
 	}
-
-	auto chunk = result->Fetch();
-	if (!chunk || chunk->size() == 0) {
-		response.error = "No response from HTTP request";
-		response.status_code = 0;
-		return response;
-	}
-
-	// Get status code
-	auto status_val = chunk->GetValue(0, 0);
-	response.status_code = status_val.IsNull() ? 0 : status_val.GetValue<int>();
-
-	// Get body
-	auto body_val = chunk->GetValue(1, 0);
-	response.body = body_val.IsNull() ? "" : body_val.GetValue<std::string>();
-
-	// Get content-type
-	auto ct_val = chunk->GetValue(2, 0);
-	response.content_type = ct_val.IsNull() ? "" : ct_val.GetValue<std::string>();
-
-	// Get retry-after
-	auto ra_val = chunk->GetValue(3, 0);
-	response.retry_after = ra_val.IsNull() ? "" : ra_val.GetValue<std::string>();
 
 	response.success = (response.status_code >= 200 && response.status_code < 300);
+	if (!response.success && response.error.empty()) {
+		response.error = "HTTP " + std::to_string(response.status_code);
+	}
+	return response;
+}
+
+HttpResponse HttpClient::ReadLocalFile(ClientContext &context, const std::string &url) {
+	HttpResponse response;
+	std::string path = url;
+	if (StringUtil::StartsWith(StringUtil::Lower(path), "file://")) {
+		path = path.substr(7);
+	}
+	try {
+		auto &fs = FileSystem::GetFileSystem(context);
+		auto handle = fs.OpenFile(path, FileFlags::FILE_FLAGS_READ);
+		auto size = handle->GetFileSize();
+		response.body.resize(size);
+		if (size > 0) {
+			handle->Read(&response.body[0], size, 0);
+		}
+	} catch (std::exception &ex) {
+		ErrorData error(ex);
+		response.error = error.RawMessage();
+		response.status_code = 404;
+		return response;
+	}
+	response.status_code = 200;
+	response.success = true;
 	return response;
 }
 
 HttpResponse HttpClient::Fetch(ClientContext &context, const std::string &url, const RetryConfig &config,
                                const std::string &user_agent) {
-	auto &db = DatabaseInstance::GetDatabase(context);
+	if (!IsHttpUrl(url)) {
+		return ReadLocalFile(context, url);
+	}
 
 	for (int attempt = 0; attempt <= config.max_retries; attempt++) {
-		auto response = ExecuteHttpGet(db, url, user_agent);
+		auto response = ExecuteHttpGet(context, url, user_agent);
 
 		if (response.success) {
 			return response;

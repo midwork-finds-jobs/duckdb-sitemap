@@ -1,59 +1,123 @@
 # name: test/sql/sitemap.test
-# description: Test sitemap extension
-# group: [sitemap]
+# description: Test sitemap extension (offline, local fixtures)
+# group: [sql]
 
 require sitemap
 
-# Test that extension loads
-statement ok
-SELECT 1;
-
-# Test sitemap_urls function exists with no arguments
 statement error
 SELECT * FROM sitemap_urls();
 ----
 No function matches the given name and argument types
 
-# Test sitemap_urls function exists with single string argument (will fail to find)
-statement error
-SELECT * FROM sitemap_urls('example.com');
-----
-Failed to find sitemap for
-
-# Test sitemap_urls function exists with array argument (will fail to find)
-statement error
-SELECT * FROM sitemap_urls(['example.com', 'google.com']);
-----
-Failed to find sitemap for
-
-# Test empty array (should throw error during bind)
 statement error
 SELECT * FROM sitemap_urls(CAST([] AS VARCHAR[]));
 ----
 sitemap_urls() requires at least one URL
 
-# Test sitemap_user_agent setting exists with default value
+# Plain urlset
+query IIII
+SELECT * FROM sitemap_urls('file://test/data/sitemap.xml') ORDER BY url;
+----
+https://example.com/	2026-01-01	daily	1.0
+https://example.com/about	2026-01-02	NULL	NULL
+https://example.com/blog/post-1	NULL	NULL	NULL
+
+# Gzipped urlset (binary body decompressed)
+query II
+SELECT url, lastmod FROM sitemap_urls('file://test/data/sitemap_products.xml.gz') ORDER BY url;
+----
+https://example.com/products/1	2026-02-01
+https://example.com/products/2	NULL
+
+# Sitemap index with plain + gzipped children
+query I
+SELECT url FROM sitemap_urls('file://test/data/sitemap_index.xml') ORDER BY url;
+----
+https://example.com/
+https://example.com/about
+https://example.com/blog/post-1
+https://example.com/products/1
+https://example.com/products/2
+
+# List argument
+query I
+SELECT count(*) FROM sitemap_urls(['file://test/data/sitemap.xml', 'file://test/data/sitemap_products.xml.gz']);
+----
+5
+
+# Truncated gzip fails instead of hanging
+statement error
+SELECT * FROM sitemap_urls('file://test/data/sitemap_truncated.xml.gz');
+----
+truncated gzip data
+
+# Decompressed size cap
+query I
+SELECT count(*) FROM sitemap_urls('file://test/data/sitemap_large.xml.gz');
+----
+2000
+
+statement ok
+SET sitemap_max_size = 10000;
+
+statement error
+SELECT * FROM sitemap_urls('file://test/data/sitemap_large.xml.gz');
+----
+exceeds maximum size of 10000 bytes
+
+# Small sitemaps still pass under the cap
+query I
+SELECT count(*) FROM sitemap_urls('file://test/data/sitemap.xml');
+----
+3
+
+statement ok
+RESET sitemap_max_size;
+
+# Missing file / unparsable content
+statement error
+SELECT * FROM sitemap_urls('file://test/data/sitemap_missing.xml');
+----
+Failed to find sitemap for file://test/data/sitemap_missing.xml
+
+statement error
+SELECT * FROM sitemap_urls('file://test/data/sitemap_broken.xml');
+----
+Failed to parse sitemap
+
+query I
+SELECT count(*) FROM sitemap_urls(['file://test/data/sitemap_missing.xml', 'file://test/data/sitemap.xml'], ignore_errors := true);
+----
+3
+
+query I
+SELECT bruteforce_find_sitemap(NULL);
+----
+NULL
+
+# Settings
 query I
 SELECT current_setting('sitemap_user_agent');
 ----
 DuckDB-Sitemap/1.0
 
-# Test setting custom user agent
 statement ok
 SET sitemap_user_agent = 'TestBot/1.0';
 
-# Verify custom user agent is set
 query I
 SELECT current_setting('sitemap_user_agent');
 ----
 TestBot/1.0
 
-# Test resetting user agent
 statement ok
 RESET sitemap_user_agent;
 
-# Verify user agent is reset to default
 query I
 SELECT current_setting('sitemap_user_agent');
 ----
 DuckDB-Sitemap/1.0
+
+query I
+SELECT current_setting('sitemap_max_size');
+----
+67108864

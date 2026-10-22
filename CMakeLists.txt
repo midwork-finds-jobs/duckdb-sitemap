@@ -19,8 +19,7 @@ set(EXTENSION_SOURCES
     src/xml_parser.cpp
     src/http_client.cpp
     src/bruteforce_function.cpp
-    src/bruteforce_finder.cpp
-)
+    src/bruteforce_finder.cpp)
 
 build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
 build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})
