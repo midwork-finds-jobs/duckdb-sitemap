@@ -19,6 +19,8 @@ struct SitemapBindData : public TableFunctionData {
 	bool ignore_errors = false;
 	RetryConfig retry_config;
 	std::string user_agent;
+	//! Maximum (decompressed) sitemap size in bytes
+	size_t max_size = 64 * 1024 * 1024;
 };
 
 // Session-level cache for discovered sitemap URLs
@@ -94,15 +96,13 @@ static void FetchSitemap(ClientContext &context, const std::string &sitemap_url,
 		return;
 	}
 
-	// Check if gzipped and decompress
-	std::string content = response.body;
-	if (XmlParser::IsGzipped(sitemap_url, response.content_type)) {
-		content = XmlParser::DecompressGzip(response.body);
-		if (content.empty()) {
-			std::lock_guard<std::mutex> lock(state.mutex);
-			state.errors.push_back("Failed to decompress gzipped sitemap: " + sitemap_url);
-			return;
-		}
+	// Bodies stay binary until here: gunzip by magic bytes (covers .gz files and gzip Content-Type)
+	std::string content;
+	std::string decompress_error;
+	if (!XmlParser::DecompressGzip(response.body, bind_data.max_size, content, decompress_error)) {
+		std::lock_guard<std::mutex> lock(state.mutex);
+		state.errors.push_back("Failed to decompress sitemap " + sitemap_url + ": " + decompress_error);
+		return;
 	}
 
 	// Parse the sitemap
@@ -172,6 +172,10 @@ static unique_ptr<FunctionData> SitemapBind(ClientContext &context, TableFunctio
 	Value user_agent_value;
 	if (context.TryGetCurrentSetting("sitemap_user_agent", user_agent_value)) {
 		bind_data->user_agent = user_agent_value.GetValue<std::string>();
+	}
+	Value max_size_value;
+	if (context.TryGetCurrentSetting("sitemap_max_size", max_size_value) && !max_size_value.IsNull()) {
+		bind_data->max_size = max_size_value.GetValue<uint64_t>();
 	}
 
 	// Parse named parameters

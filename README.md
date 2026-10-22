@@ -104,6 +104,17 @@ SELECT * FROM sitemap_urls('https://example.com');
 SELECT bruteforce_find_sitemap('https://example.com');
 ```
 
+### Local Files
+
+`file://` URLs are read via DuckDB's file system, e.g. `sitemap_urls('file://data/sitemap.xml.gz')`.
+
+### Size Limit
+
+```sql
+-- Max (decompressed) sitemap size in bytes (default: 64 MiB)
+SET sitemap_max_size = 104857600;
+```
+
 ### Array Support
 
 Process multiple domains in a single call:
@@ -170,7 +181,7 @@ make GEN=ninja
 
 - libxml2 - XML parsing
 - zlib - Gzip decompression
-- http_request extension (from DuckDB community)
+- DuckDB core HTTP client (`httpfs` autoloaded for HTTPS)
 
 ## License
 
