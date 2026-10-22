@@ -56,7 +56,11 @@ public:
 	static void Cleanup();
 
 	static SitemapParseResult ParseSitemap(const std::string &xml_content);
-	static std::string DecompressGzip(const std::string &compressed);
+	//! Gunzip `compressed` into `output` (passes non-gzip data through); fails on corrupt/truncated data or when
+	//! the output would exceed `max_output` bytes
+	static bool DecompressGzip(const std::string &compressed, size_t max_output, std::string &output,
+	                           std::string &error);
+	static bool HasGzipMagic(const std::string &data);
 	static bool IsGzipped(const std::string &url, const std::string &content_type);
 	static std::vector<std::string> FindSitemapInHtml(const std::string &html_content);
 };
