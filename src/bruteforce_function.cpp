@@ -108,6 +108,8 @@ static void BruteforceFindSitemapFunction(DataChunk &args, ExpressionState &stat
 void RegisterBruteforceFunction(ExtensionLoader &loader) {
 	ScalarFunction bruteforce_func("bruteforce_find_sitemap", {LogicalType::VARCHAR}, LogicalType::VARCHAR,
 	                               BruteforceFindSitemapFunction);
+	// Performs HTTP requests; DuckDB 2.0 requires functions that may raise errors to be marked fallible
+	bruteforce_func.SetFallible();
 
 	loader.RegisterFunction(bruteforce_func);
 }

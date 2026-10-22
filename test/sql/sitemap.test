@@ -90,6 +90,11 @@ SELECT count(*) FROM sitemap_urls(['file://test/data/sitemap_missing.xml', 'file
 ----
 3
 
+query I
+SELECT bruteforce_find_sitemap(NULL);
+----
+NULL
+
 # Settings
 query I
 SELECT current_setting('sitemap_user_agent');
