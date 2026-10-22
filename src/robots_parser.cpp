@@ -28,8 +28,7 @@ static bool StartsWithCaseInsensitive(const std::string &str, const std::string 
 	}
 
 	for (size_t i = 0; i < prefix.length(); i++) {
-		if (std::tolower(static_cast<unsigned char>(str[i])) !=
-		    std::tolower(static_cast<unsigned char>(prefix[i]))) {
+		if (std::tolower(static_cast<unsigned char>(str[i])) != std::tolower(static_cast<unsigned char>(prefix[i]))) {
 			return false;
 		}
 	}

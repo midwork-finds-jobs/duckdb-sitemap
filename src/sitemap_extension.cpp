@@ -6,7 +6,6 @@
 #include "xml_parser.hpp"
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
-#include "duckdb/main/connection.hpp"
 #include "duckdb/main/config.hpp"
 
 namespace duckdb {
@@ -16,25 +15,10 @@ static void LoadInternal(ExtensionLoader &loader) {
 	auto &config = DBConfig::GetConfig(db);
 
 	// Register sitemap_user_agent setting
-	config.AddExtensionOption("sitemap_user_agent",
-	                          "User agent string for sitemap HTTP requests",
-	                          LogicalType::VARCHAR,
+	config.AddExtensionOption("sitemap_user_agent", "User agent string for sitemap HTTP requests", LogicalType::VARCHAR,
 	                          Value("DuckDB-Sitemap/1.0"));
-
-	Connection conn(db);
-
-	// Install and load http_request from community
-	auto install_result = conn.Query("INSTALL http_request FROM community");
-	if (install_result->HasError()) {
-		throw IOException("Sitemap extension requires http_request extension. Failed to install: " +
-		                  install_result->GetError());
-	}
-
-	auto load_result = conn.Query("LOAD http_request");
-	if (load_result->HasError()) {
-		throw IOException("Sitemap extension requires http_request extension. Failed to load: " +
-		                  load_result->GetError());
-	}
+	config.AddExtensionOption("sitemap_max_size", "Maximum (decompressed) sitemap size in bytes", LogicalType::UBIGINT,
+	                          Value::UBIGINT(64ULL * 1024 * 1024));
 
 	// Initialize libxml2
 	XmlParser::Initialize();

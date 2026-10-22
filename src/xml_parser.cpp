@@ -33,10 +33,8 @@ XMLDocRAII::XMLDocRAII(const std::string &content) {
 		xpath_ctx = xmlXPathNewContext(doc);
 		if (xpath_ctx) {
 			// Register both sitemap namespace variants
-			xmlXPathRegisterNs(xpath_ctx, BAD_CAST "sm",
-			                   BAD_CAST "http://www.sitemaps.org/schemas/sitemap/0.9");
-			xmlXPathRegisterNs(xpath_ctx, BAD_CAST "sm2",
-			                   BAD_CAST "http://www.google.com/schemas/sitemap/0.84");
+			xmlXPathRegisterNs(xpath_ctx, BAD_CAST "sm", BAD_CAST "http://www.sitemaps.org/schemas/sitemap/0.9");
+			xmlXPathRegisterNs(xpath_ctx, BAD_CAST "sm2", BAD_CAST "http://www.google.com/schemas/sitemap/0.84");
 		}
 	}
 }
@@ -240,13 +238,22 @@ bool XmlParser::IsGzipped(const std::string &url, const std::string &content_typ
 	return false;
 }
 
-std::string XmlParser::DecompressGzip(const std::string &compressed) {
-	// Check for gzip magic bytes
-	if (compressed.size() < 2 ||
-	    static_cast<unsigned char>(compressed[0]) != 0x1f ||
-	    static_cast<unsigned char>(compressed[1]) != 0x8b) {
-		// Not gzipped, return as-is
-		return compressed;
+bool XmlParser::HasGzipMagic(const std::string &data) {
+	return data.size() >= 2 && static_cast<unsigned char>(data[0]) == 0x1f &&
+	       static_cast<unsigned char>(data[1]) == 0x8b;
+}
+
+bool XmlParser::DecompressGzip(const std::string &compressed, size_t max_output, std::string &output,
+                               std::string &error) {
+	output.clear();
+	if (!HasGzipMagic(compressed)) {
+		// Not gzipped (e.g. already decoded by the server), return as-is
+		if (compressed.size() > max_output) {
+			error = "sitemap exceeds maximum size of " + std::to_string(max_output) + " bytes";
+			return false;
+		}
+		output = compressed;
+		return true;
 	}
 
 	z_stream zs;
@@ -254,42 +261,52 @@ std::string XmlParser::DecompressGzip(const std::string &compressed) {
 
 	// 16 + MAX_WBITS for gzip format
 	if (inflateInit2(&zs, 16 + MAX_WBITS) != Z_OK) {
-		return ""; // Decompression init failed
+		error = "failed to initialize gzip decompression";
+		return false;
 	}
 
 	zs.next_in = reinterpret_cast<Bytef *>(const_cast<char *>(compressed.data()));
 	zs.avail_in = static_cast<uInt>(compressed.size());
 
-	std::string decompressed;
 	char buffer[32768];
-
-	int ret;
-	do {
+	int ret = Z_OK;
+	while (ret != Z_STREAM_END) {
 		zs.next_out = reinterpret_cast<Bytef *>(buffer);
 		zs.avail_out = sizeof(buffer);
+		auto avail_in_before = zs.avail_in;
 
 		ret = inflate(&zs, Z_NO_FLUSH);
-
 		if (ret != Z_OK && ret != Z_STREAM_END && ret != Z_BUF_ERROR) {
 			inflateEnd(&zs);
-			return ""; // Decompression failed
+			error = "corrupt gzip data";
+			return false;
 		}
 
 		size_t have = sizeof(buffer) - zs.avail_out;
-		decompressed.append(buffer, have);
+		if (output.size() + have > max_output) {
+			inflateEnd(&zs);
+			error = "decompressed sitemap exceeds maximum size of " + std::to_string(max_output) + " bytes";
+			return false;
+		}
+		output.append(buffer, have);
 
-	} while (ret != Z_STREAM_END);
+		// No progress (input exhausted before end of stream): truncated data
+		if (ret != Z_STREAM_END && have == 0 && zs.avail_in == avail_in_before) {
+			inflateEnd(&zs);
+			error = "truncated gzip data";
+			return false;
+		}
+	}
 
 	inflateEnd(&zs);
-	return decompressed;
+	return true;
 }
 
 std::vector<std::string> XmlParser::FindSitemapInHtml(const std::string &html_content) {
 	std::vector<std::string> sitemaps;
 
 	// Parse HTML with libxml2 in HTML mode
-	xmlDocPtr doc = htmlReadMemory(html_content.c_str(), static_cast<int>(html_content.size()),
-	                               nullptr, nullptr,
+	xmlDocPtr doc = htmlReadMemory(html_content.c_str(), static_cast<int>(html_content.size()), nullptr, nullptr,
 	                               HTML_PARSE_RECOVER | HTML_PARSE_NOERROR | HTML_PARSE_NOWARNING);
 
 	if (!doc) {
